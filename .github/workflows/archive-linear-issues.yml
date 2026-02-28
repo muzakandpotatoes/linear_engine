@@ -1,0 +1,25 @@
+name: Archive Linear Issues
+
+on:
+  schedule:
+    # 4 AM PST (UTC-8) = 12:00 UTC | runs at 5 AM during PDT (UTC-7)
+    - cron: "0 12 * * *"
+  workflow_dispatch: # allow ad-hoc manual runs
+
+jobs:
+  archive:
+    name: Archive closed Linear issues (>1 week old)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Archive issues
+        run: node scripts/archive-linear-issues.js
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
