@@ -179,13 +179,7 @@ async function main() {
   for (const task of triageTasks) {
     const { title, team } = parseTriageTask(task.content);
 
-    if (!team) {
-      console.warn(`  ⚠ Skipping "${task.content}" — no team suffix found`);
-      skipped++;
-      continue;
-    }
-
-    const linearTeam = teamMap[team];
+    const linearTeam = teamMap[team ?? "SELF"];
     if (!linearTeam) {
       console.warn(
         `  ⚠ Skipping "${task.content}" — team "${team}" not found in Linear`
