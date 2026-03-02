@@ -117,6 +117,20 @@ async function todoistRequest(method, path) {
   return res.status === 204 ? null : res.json();
 }
 
+async function fetchAllTodoistTasks() {
+  const tasks = [];
+  let cursor = null;
+
+  do {
+    const url = cursor ? `/tasks?cursor=${cursor}` : "/tasks";
+    const page = await todoistRequest("GET", url);
+    tasks.push(...page.results);
+    cursor = page.next_cursor ?? null;
+  } while (cursor);
+
+  return tasks;
+}
+
 // --- Task name parsing ---
 
 // "triage Fix the bug Hop" → { title: "Fix the bug", team: "HOP" }
@@ -150,7 +164,7 @@ async function main() {
   console.log(`Found Linear team(s): ${foundTeams || "(none matching)"}\n`);
 
   console.log("Fetching Todoist tasks...");
-  const allTasks = await todoistRequest("GET", "/tasks");
+  const allTasks = await fetchAllTodoistTasks();
 
   const triageTasks = allTasks.filter((task) => /^triage\b/i.test(task.content));
   console.log(`Found ${triageTasks.length} triage task(s) in Todoist`);
