@@ -4,7 +4,7 @@
 // in Todoist. Requires LINEAR_API_KEY and TODOIST_API_KEY env vars.
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
-const TODOIST_API_URL = "https://api.todoist.com/rest/v2";
+const TODOIST_API_URL = "https://api.todoist.com/api/v1";
 
 const { LINEAR_API_KEY, TODOIST_API_KEY } = process.env;
 
