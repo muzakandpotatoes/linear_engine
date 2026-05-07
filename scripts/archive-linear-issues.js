@@ -37,7 +37,7 @@ const GET_CLOSED_ISSUES_QUERY = `
   query GetClosedIssues($after: String) {
     issues(
       filter: {
-        state: { type: { in: ["completed", "canceled", "duplicate"] } }
+        state: { type: { in: ["completed", "canceled"] } }
         archivedAt: { null: true }
       }
       first: 100
@@ -49,6 +49,7 @@ const GET_CLOSED_ISSUES_QUERY = `
         title
         completedAt
         canceledAt
+        updatedAt
         team {
           name
         }
@@ -105,7 +106,7 @@ async function main() {
   console.log(`Found ${allClosed.length} unarchived closed issue(s) total`);
 
   const eligible = allClosed.filter((issue) => {
-    const closedAt = issue.completedAt ?? issue.canceledAt;
+    const closedAt = issue.completedAt ?? issue.canceledAt ?? issue.updatedAt;
     return closedAt && new Date(closedAt) < cutoff;
   });
 
@@ -120,7 +121,7 @@ async function main() {
   let failed = 0;
 
   for (const issue of eligible) {
-    const closedAt = issue.completedAt ?? issue.canceledAt;
+    const closedAt = issue.completedAt ?? issue.canceledAt ?? issue.updatedAt;
     try {
       const success = await archiveIssue(issue.id);
       if (success) {
