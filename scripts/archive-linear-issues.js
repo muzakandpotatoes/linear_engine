@@ -37,7 +37,7 @@ const GET_CLOSED_ISSUES_QUERY = `
   query GetClosedIssues($after: String) {
     issues(
       filter: {
-        state: { type: { in: ["completed", "cancelled"] } }
+        state: { type: { in: ["completed", "canceled", "duplicate"] } }
         archivedAt: { null: true }
       }
       first: 100
