@@ -1,0 +1,24 @@
+name: Keepalive
+
+# Pushes an empty commit once a month so GitHub's 60-day "inactive repo"
+# rule doesn't disable the scheduled workflows.
+
+on:
+  schedule:
+    - cron: "0 12 1 * *" # 12:00 UTC on the 1st of each month
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empty commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Keepalive: reset GitHub Actions inactivity timer"
+          git push
