@@ -214,83 +214,113 @@ function isClosed(issue) {
 
 // --- Linear name → ID resolver --------------------------------------------
 
+// Lazy resolver: keeps the bootstrap small (Linear caps queries at complexity
+// 10,000) by fetching team details, projects, and users only when needed.
 class Resolver {
   constructor() {
-    this.teams = {};
-    this.users = [];
-    this.projects = {};
     this.viewerId = null;
+    this.teamsByName = {};    // lowercased name → { id, name }
+    this.teamDetails = {};    // teamId        → { states, labels }
+    this.projectsByName = {}; // lowercased name → { id, name }
+    this.usersBySpec = {};    // lowercased spec → { id, ... }
   }
 
-  async load() {
+  async bootstrap() {
     const data = await linearRequest(`
       query Bootstrap {
         viewer { id }
-        teams(first: 100) {
-          nodes {
-            id name
-            states(first: 100) { nodes { id name type } }
-            labels(first: 250) { nodes { id name } }
-          }
-        }
-        users(first: 250) {
-          nodes { id name displayName email active }
-        }
-        projects(first: 250) { nodes { id name } }
+        teams(first: 50) { nodes { id name } }
       }
     `);
     this.viewerId = data.viewer.id;
     for (const t of data.teams.nodes) {
-      this.teams[t.name.toLowerCase()] = {
-        id: t.id,
-        name: t.name,
-        states: Object.fromEntries(
-          t.states.nodes.map((s) => [s.name.toLowerCase(), s])
-        ),
-        labels: Object.fromEntries(
-          t.labels.nodes.map((l) => [l.name.toLowerCase(), l])
-        ),
-      };
+      this.teamsByName[t.name.toLowerCase()] = { id: t.id, name: t.name };
     }
-    this.users = data.users.nodes.filter((u) => u.active);
-    this.projects = Object.fromEntries(
-      data.projects.nodes.map((p) => [p.name.toLowerCase(), p])
-    );
   }
 
   team(name) {
-    const t = this.teams[String(name).toLowerCase()];
+    const t = this.teamsByName[String(name).toLowerCase()];
     if (!t) throw new Error(`Linear team "${name}" not found`);
     return t;
   }
 
-  state(team, name) {
-    const s = team.states[String(name).toLowerCase()];
+  async _details(teamId) {
+    if (this.teamDetails[teamId]) return this.teamDetails[teamId];
+    const data = await linearRequest(
+      `query TeamDetails($id: String!) {
+        team(id: $id) {
+          states(first: 50) { nodes { id name type } }
+          labels(first: 100) { nodes { id name } }
+        }
+      }`,
+      { id: teamId }
+    );
+    const detail = {
+      states: Object.fromEntries(
+        data.team.states.nodes.map((s) => [s.name.toLowerCase(), s])
+      ),
+      labels: Object.fromEntries(
+        data.team.labels.nodes.map((l) => [l.name.toLowerCase(), l])
+      ),
+    };
+    this.teamDetails[teamId] = detail;
+    return detail;
+  }
+
+  async state(team, name) {
+    const d = await this._details(team.id);
+    const s = d.states[String(name).toLowerCase()];
     if (!s) throw new Error(`State "${name}" not found in team "${team.name}"`);
     return s;
   }
 
-  project(name) {
-    const p = this.projects[String(name).toLowerCase()];
+  async project(name) {
+    const key = String(name).toLowerCase();
+    if (this.projectsByName[key]) return this.projectsByName[key];
+    const data = await linearRequest(
+      `query FindProject($name: String!) {
+        projects(first: 5, filter: { name: { eqIgnoreCase: $name } }) {
+          nodes { id name }
+        }
+      }`,
+      { name }
+    );
+    const p = data.projects.nodes[0];
     if (!p) throw new Error(`Project "${name}" not found`);
+    this.projectsByName[key] = p;
     return p;
   }
 
-  user(spec) {
+  async user(spec) {
     if (spec === "me") return { id: this.viewerId };
-    const lc = String(spec).toLowerCase();
-    const u = this.users.find(
-      (u) =>
-        u.email?.toLowerCase() === lc ||
-        u.name?.toLowerCase() === lc ||
-        u.displayName?.toLowerCase() === lc
-    );
-    if (!u) throw new Error(`Linear user "${spec}" not found`);
-    return u;
+    const key = String(spec).toLowerCase();
+    if (this.usersBySpec[key]) return this.usersBySpec[key];
+    const filters = [
+      { email: { eq: spec } },
+      { displayName: { eqIgnoreCase: spec } },
+      { name: { eqIgnoreCase: spec } },
+    ];
+    for (const filter of filters) {
+      const data = await linearRequest(
+        `query FindUser($filter: UserFilter!) {
+          users(first: 5, filter: $filter) {
+            nodes { id name displayName email }
+          }
+        }`,
+        { filter }
+      );
+      const u = data.users.nodes[0];
+      if (u) {
+        this.usersBySpec[key] = u;
+        return u;
+      }
+    }
+    throw new Error(`Linear user "${spec}" not found`);
   }
 
   async ensureLabel(team, name) {
-    const existing = team.labels[name.toLowerCase()];
+    const d = await this._details(team.id);
+    const existing = d.labels[name.toLowerCase()];
     if (existing) return existing.id;
     const data = await linearRequest(
       `mutation L($name: String!, $teamId: String!) {
@@ -305,7 +335,7 @@ class Resolver {
       throw new Error(`Failed to create label "${name}"`);
     }
     const l = data.issueLabelCreate.issueLabel;
-    team.labels[l.name.toLowerCase()] = l;
+    d.labels[l.name.toLowerCase()] = l;
     return l.id;
   }
 }
@@ -327,7 +357,7 @@ async function findIterations(teamId, recurringLabel) {
           id identifier title
           state { id name type }
           dueDate completedAt canceledAt archivedAt
-          labels { nodes { id name } }
+          labels(first: 20) { nodes { id name } }
         }
       }
     }`,
@@ -346,9 +376,9 @@ async function createIssue(fields, dueDate, vars, team, resolver, recurringLabel
     labelIds: [recurringLabelId],
   };
   if (fields.description) input.description = render(fields.description, vars);
-  if (fields.assignee) input.assigneeId = resolver.user(fields.assignee).id;
-  if (fields.project) input.projectId = resolver.project(fields.project).id;
-  if (fields.initial_state) input.stateId = resolver.state(team, fields.initial_state).id;
+  if (fields.assignee) input.assigneeId = (await resolver.user(fields.assignee)).id;
+  if (fields.project) input.projectId = (await resolver.project(fields.project)).id;
+  if (fields.initial_state) input.stateId = (await resolver.state(team, fields.initial_state)).id;
   if (fields.priority != null) input.priority = Number(fields.priority);
   if (Array.isArray(fields.labels)) {
     for (const name of fields.labels) {
@@ -558,7 +588,7 @@ async function applyTransitions(task, fields, issue, dueDate, today, team, resol
     return;
   }
 
-  const newState = resolver.state(team, target.state);
+  const newState = await resolver.state(team, target.state);
   await updateIssueState(issue.id, newState.id);
   console.log(`[${task.id}] ${issue.identifier} → ${target.state}`);
 }
@@ -575,7 +605,7 @@ async function main() {
   console.log(`Recurring tasks — today is ${today} (${tz})`);
 
   const resolver = new Resolver();
-  await resolver.load();
+  await resolver.bootstrap();
 
   let failed = 0;
   for (const task of cfg.tasks || []) {
