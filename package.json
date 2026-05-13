@@ -1,0 +1,9 @@
+{
+  "name": "linear-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scripts that wire Linear into the rest of my life.",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

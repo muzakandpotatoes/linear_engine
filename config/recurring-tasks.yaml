@@ -1,0 +1,121 @@
+# Configuration for scripts/recurring-tasks.js.
+#
+# Each entry under `tasks` is one recurring Linear issue. Iterations are
+# tagged with a label `recurring:<id>` so the script can find prior runs
+# without any external state store — Linear is the source of truth.
+#
+# ─── Top-level keys ───────────────────────────────────────────────────────
+#   timezone  IANA tz name. Used for "today" and all date math.    (string)
+#   defaults  Map merged into every task's `fields` block.         (object)
+#             Also accepts `if_open` as a global default.
+#   tasks     List of recurring task definitions.                  (list)
+#
+# ─── Task entry ───────────────────────────────────────────────────────────
+#   id              Stable identifier. Used to build the `recurring:<id>`
+#                   label that ties iterations together.   REQUIRED (string)
+#   enabled         Set to false to pause without deleting.    default: true
+#   schedule        Schedule block (see modes below).            REQUIRED
+#   create_offset   How far before due to create the issue.    default: "0d"
+#   reminder_offset How far before due to set a Linear reminder.   optional
+#                   Reminder is per-viewer — only the API token owner is
+#                   notified.
+#   if_open         Behavior when a prior iteration is still open:
+#                     skip      — don't create a new one        (default)
+#                     create    — create alongside the open one
+#                     rollover  — update the open one's dueDate
+#   transitions     List of state changes to apply as the due date
+#                   approaches (see "Transitions" below).         optional
+#   fields          Linear issue fields (see "Fields" below).
+#
+# ─── Schedule modes (pick exactly one) ────────────────────────────────────
+#   mode: weekly
+#     day:      Monday | Tuesday | ... | Sunday
+#
+#   mode: monthly
+#     day:      1-31 (clamps to last day of short months)
+#
+#   mode: interval
+#     every:    "Nd" | "Nw"
+#     anchor:   YYYY-MM-DD                                   (optional)
+#
+#   mode: after_completion
+#     interval: "Nd" | "Nw"   — N after the previous completion
+#
+# ─── Transitions ──────────────────────────────────────────────────────────
+# Each list entry:
+#   offset:  "Nd" | "Nw"   how far before due this transition fires
+#   state:   Linear state name to move the issue into
+# The script will not override a manual move out of the tracked states.
+#
+# ─── Fields (Linear issue properties) ─────────────────────────────────────
+#   name           Issue title. Supports templates.    REQUIRED (string)
+#   description    Issue body. Supports templates.              optional
+#   assignee       "me" (API token owner), email, name, or display name
+#   team           Linear team name.        default: defaults.team
+#   project        Linear project name.                         optional
+#   initial_state  State at creation time (e.g. "Backlog").     optional
+#   priority       0 none | 1 urgent | 2 high | 3 medium | 4 low  default: 0
+#   labels         List of label names. Created in-team if missing.
+#
+# ─── Offset format ────────────────────────────────────────────────────────
+#   "Nd" = N days   |   "Nw" = N weeks   |   "0d" = same day as due
+#
+# ─── Template variables (for name / description) ──────────────────────────
+#   {{due_date}}   2026-05-15            {{weekday}}    Friday
+#   {{date}}       (alias of due_date)   {{iso_week}}   20
+#   {{year}}       2026                  {{month_num}}  05
+#   {{month}}      May                   {{day}}        15
+
+timezone: America/Los_Angeles
+
+defaults:
+  team: Self
+  priority: 0       # 0=none, 1=urgent, 2=high, 3=medium, 4=low
+  if_open: skip     # skip | create | rollover — when prior iteration is still open
+
+# When a previous iteration is closed and no active one is observed, the next
+# iteration is created on the following run regardless of `create_offset`.
+
+tasks:
+  - id: cut-hair
+    schedule:
+      mode: after_completion
+      interval: 18d
+    transitions:
+      - offset: 2d
+        state: Docket
+    fields:
+      name: "Cut hair"
+      assignee: me
+      project: "Microbial ecology"
+      initial_state: Backlog
+      priority: 4
+
+  - id: pay-rent
+    schedule:
+      mode: monthly
+      day: 27
+    transitions:
+      - offset: 5d
+        state: Docket
+    fields:
+      name: "Pay rent"
+      assignee: me
+      project: "Cash care"
+      initial_state: Backlog
+      priority: 2
+
+  - id: project-review-sync-doc
+    schedule:
+      mode: weekly
+      day: Thursday
+    transitions:
+      - offset: 0d
+        state: In Progress
+    fields:
+      name: "Fill project review sync doc"
+      assignee: me
+      team: Hop
+      project: "Hop Meta"
+      initial_state: Todo
+      priority: 3

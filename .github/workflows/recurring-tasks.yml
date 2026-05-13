@@ -1,0 +1,27 @@
+name: Recurring Linear tasks
+
+on:
+  schedule:
+    - cron: "0 10 * * *" # 10:00 UTC = 03:00 PT / 02:00 PST — runs once daily
+  workflow_dispatch:
+
+jobs:
+  recurring:
+    name: Sync recurring Linear tasks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run recurring tasks
+        run: node scripts/recurring-tasks.js
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
