@@ -15,7 +15,12 @@
 #                   label that ties iterations together.   REQUIRED (string)
 #   enabled         Set to false to pause without deleting.    default: true
 #   schedule        Schedule block (see modes below).            REQUIRED
-#   create_offset   How far before due to create the issue.    default: "0d"
+#   create_offset   How far before due to create the issue.
+#                   Default: the previous scheduled occurrence — e.g. a
+#                   weekly Thursday task is created the prior Thursday,
+#                   a monthly day-27 task on the previous 27th. For
+#                   after_completion the new iteration appears as soon as
+#                   the previous one closes.
 #   reminder_offset How far before due to set a Linear reminder.   optional
 #                   Reminder is per-viewer — only the API token owner is
 #                   notified.

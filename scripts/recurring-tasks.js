@@ -212,6 +212,34 @@ function isClosed(issue) {
   return !!(issue.completedAt || issue.canceledAt || issue.archivedAt);
 }
 
+// The previous scheduled due date strictly before `dueDate`. Used to set the
+// default create window — by default an iteration is created when the prior
+// one was due (e.g. a weekly-Thursday task appears each Thursday for the
+// following Thursday).
+function previousDueDate(schedule, dueDate) {
+  const t = parseDate(dueDate);
+  switch (schedule.mode) {
+    case "weekly":
+      return formatDate(addDays(t, -7));
+    case "monthly": {
+      const day = Number(schedule.day);
+      const clamp = (y, m, d) =>
+        Math.min(d, new Date(Date.UTC(y, m + 1, 0)).getUTCDate());
+      const y = t.getUTCFullYear();
+      const m = t.getUTCMonth();
+      const py = m === 0 ? y - 1 : y;
+      const pm = (m + 11) % 12;
+      return formatDate(new Date(Date.UTC(py, pm, clamp(py, pm, day))));
+    }
+    case "interval": {
+      const every = parseOffsetDays(schedule.every);
+      return formatDate(addDays(t, -every));
+    }
+    default:
+      return dueDate;
+  }
+}
+
 // --- Linear name → ID resolver --------------------------------------------
 
 // Lazy resolver: keeps the bootstrap small (Linear caps queries at complexity
@@ -499,8 +527,18 @@ async function processTask(task, defaults, today, resolver) {
   }
 
   const vars = templateVars(dueDate);
-  const createOffset = parseOffsetDays(task.create_offset);
-  const createDate = formatDate(addDays(parseDate(dueDate), -createOffset));
+  // Default create window: the prior scheduled occurrence (so a weekly task
+  // is created each prior weekday). An explicit `create_offset` overrides.
+  // `after_completion` has no schedule-driven prior; rely on advancedPastClosed.
+  let createDate;
+  if (task.create_offset != null) {
+    const createOffset = parseOffsetDays(task.create_offset);
+    createDate = formatDate(addDays(parseDate(dueDate), -createOffset));
+  } else if (task.schedule.mode === "after_completion") {
+    createDate = dueDate;
+  } else {
+    createDate = previousDueDate(task.schedule, dueDate);
+  }
   const inCreateWindow = advancedPastClosed || today >= createDate;
 
   // 2. Find iteration for this due date.
