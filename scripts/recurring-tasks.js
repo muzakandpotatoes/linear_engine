@@ -37,10 +37,13 @@ async function linearRequest(query, variables = {}) {
     },
     body: JSON.stringify({ query, variables }),
   });
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Linear API HTTP error: ${res.status} ${res.statusText}`);
+    throw new Error(
+      `Linear API HTTP ${res.status} ${res.statusText}: ${text}`
+    );
   }
-  const body = await res.json();
+  const body = JSON.parse(text);
   if (body.errors?.length) {
     throw new Error(`Linear API errors: ${JSON.stringify(body.errors)}`);
   }
