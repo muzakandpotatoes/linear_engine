@@ -124,3 +124,43 @@ tasks:
       project: "Hop Meta"
       initial_state: Todo
       priority: 3
+
+  - id: clean-coway-prefilters
+    schedule:
+      mode: after_completion
+      interval: 2w
+    fields:
+      name: "Clean Coway prefilters"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
+
+  - id: change-hvac-filters
+    schedule:
+      mode: after_completion
+      interval: 90d
+    fields:
+      name: "Change HVAC filters"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
+
+  - id: change-coway-carbon-filter
+    schedule:
+      mode: after_completion
+      interval: 180d
+    fields:
+      name: "Change Coway carbon filter"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
+
+  - id: change-coway-hepa-filter
+    schedule:
+      mode: after_completion
+      interval: 365d
+    fields:
+      name: "Change Coway HEPA filter"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
