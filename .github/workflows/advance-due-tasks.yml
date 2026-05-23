@@ -2,7 +2,7 @@ name: Advance due Linear tasks
 
 on:
   schedule:
-    - cron: "0 10 * * *" # 10:00 UTC = 03:00 PT / 02:00 PST — runs once daily
+    - cron: "0 11 * * *" # 11:00 UTC = 04:00 PT / 03:00 PST — one hour after recurring-tasks
   workflow_dispatch:
 
 jobs:
@@ -17,9 +17,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-
-      - run: npm ci
 
       - name: Run advance due tasks
         run: node scripts/advance-due-tasks.js

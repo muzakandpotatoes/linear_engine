@@ -17,10 +17,14 @@ if (!TODOIST_API_KEY) {
   process.exit(1);
 }
 
-// Team names to look for as a suffix on the Todoist task (case insensitive)
-const KNOWN_TEAMS = ["Hop", "Self"];
+// Default team when a triage task has no recognized team suffix.
+const DEFAULT_TEAM = "Self";
 
 // --- Linear helpers ---
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function linearRequest(query, variables = {}) {
   const res = await fetch(LINEAR_API_URL, {
@@ -31,16 +35,15 @@ async function linearRequest(query, variables = {}) {
     },
     body: JSON.stringify({ query, variables }),
   });
-
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Linear API HTTP error: ${res.status} ${res.statusText}`);
+    throw new Error(`Linear API HTTP ${res.status} ${res.statusText}: ${text}`);
   }
-
-  const body = await res.json();
+  const body = JSON.parse(text);
   if (body.errors?.length) {
     throw new Error(`Linear API errors: ${JSON.stringify(body.errors)}`);
   }
-
+  if (/^\s*mutation/i.test(query)) await sleep(100);
   return body.data;
 }
 
@@ -75,16 +78,12 @@ const CREATE_ISSUE_MUTATION = `
 `;
 
 // Returns a map of uppercase team name → { id, name, triageStateId }
-// for the teams listed in KNOWN_TEAMS.
+// for every team in the workspace.
 async function getLinearTeamMap() {
   const data = await linearRequest(GET_TEAMS_QUERY);
-  const knownUpper = new Set(KNOWN_TEAMS.map((t) => t.toUpperCase()));
   const teamMap = {};
 
   for (const team of data.teams.nodes) {
-    const key = team.name.toUpperCase();
-    if (!knownUpper.has(key)) continue;
-
     const triageState = team.states.nodes.find((s) => s.type === "triage");
     if (!triageState) {
       console.warn(
@@ -92,7 +91,7 @@ async function getLinearTeamMap() {
       );
     }
 
-    teamMap[key] = {
+    teamMap[team.name.toUpperCase()] = {
       id: team.id,
       name: team.name,
       triageStateId: triageState?.id ?? null,
@@ -109,12 +108,12 @@ async function todoistRequest(method, path) {
     method,
     headers: { Authorization: `Bearer ${TODOIST_API_KEY}` },
   });
-
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Todoist API HTTP error: ${res.status} ${res.statusText}`);
+    throw new Error(`Todoist API HTTP ${res.status} ${res.statusText}: ${text}`);
   }
-
-  return res.status === 204 ? null : res.json();
+  if (res.status === 204 || text === "") return null;
+  return JSON.parse(text);
 }
 
 async function fetchAllTodoistTasks() {
@@ -133,15 +132,19 @@ async function fetchAllTodoistTasks() {
 
 // --- Task name parsing ---
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // "triage Fix the bug Hop" → { title: "Fix the bug", team: "HOP" }
 // "TRIAGE Update docs"     → { title: "Update docs",  team: null  }
-function parseTriageTask(content) {
-  // Strip leading "triage" word (with optional trailing whitespace)
+// `teamNames` should be sorted longest-first so multi-word names like
+// "Hop Mobile" match before "Hop".
+function parseTriageTask(content, teamNames) {
   const withoutPrefix = content.replace(/^triage\s*/i, "").trim();
 
-  for (const teamName of KNOWN_TEAMS) {
-    // Team name must be preceded by whitespace (not embedded in another word)
-    const suffix = new RegExp(`\\s+${teamName}$`, "i");
+  for (const teamName of teamNames) {
+    const suffix = new RegExp(`\\s+${escapeRegex(teamName)}$`, "i");
     if (suffix.test(withoutPrefix)) {
       return {
         title: withoutPrefix.replace(suffix, "").trim(),
@@ -158,10 +161,10 @@ function parseTriageTask(content) {
 async function main() {
   console.log("Fetching Linear teams...");
   const teamMap = await getLinearTeamMap();
-  const foundTeams = Object.values(teamMap)
+  const teamNames = Object.values(teamMap)
     .map((t) => t.name)
-    .join(", ");
-  console.log(`Found Linear team(s): ${foundTeams || "(none matching)"}\n`);
+    .sort((a, b) => b.length - a.length); // longest first to avoid partial matches
+  console.log(`Found Linear team(s): ${teamNames.join(", ") || "(none)"}\n`);
 
   console.log("Fetching Todoist tasks...");
   const allTasks = await fetchAllTodoistTasks();
@@ -177,12 +180,12 @@ async function main() {
   let failed = 0;
 
   for (const task of triageTasks) {
-    const { title, team } = parseTriageTask(task.content);
+    const { title, team } = parseTriageTask(task.content, teamNames);
 
-    const linearTeam = teamMap[team ?? "SELF"];
+    const linearTeam = teamMap[team ?? DEFAULT_TEAM.toUpperCase()];
     if (!linearTeam) {
       console.warn(
-        `  ⚠ Skipping "${task.content}" — team "${team}" not found in Linear`
+        `  ⚠ Skipping "${task.content}" — team "${team ?? DEFAULT_TEAM}" not found in Linear`
       );
       skipped++;
       continue;

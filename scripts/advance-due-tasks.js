@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-// Advances Linear "Self" team issues based on proximity to their due date:
+// Advances Linear issues across all teams based on proximity to their due date:
 //   - Backlog or Todo, due within 7 days   → Docket
 //   - Backlog, Todo, or Docket, due within 1 day → In Progress
 //
 // The 1-day rule takes priority: an issue due tomorrow skips Docket and goes
 // straight to In Progress. Overdue issues are treated as due "within 1 day".
 //
-// Requires LINEAR_API_KEY. Safe to re-run (already-advanced issues are skipped).
+// Teams that don't have both "Docket" and "In Progress" states are skipped
+// (with a warning). Requires LINEAR_API_KEY. Safe to re-run.
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
+const TIMEZONE = "America/Los_Angeles";
 const { LINEAR_API_KEY } = process.env;
 
 if (!LINEAR_API_KEY) {
@@ -16,7 +18,9 @@ if (!LINEAR_API_KEY) {
   process.exit(1);
 }
 
-const TEAM_NAME = "Self";
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function linearRequest(query, variables = {}) {
   const res = await fetch(LINEAR_API_URL, {
@@ -35,12 +39,18 @@ async function linearRequest(query, variables = {}) {
   if (body.errors?.length) {
     throw new Error(`Linear API errors: ${JSON.stringify(body.errors)}`);
   }
+  if (/^\s*mutation/i.test(query)) await sleep(100);
   return body.data;
 }
 
-// YYYY-MM-DD string for today in local system time (good enough for a daily job).
-function today() {
-  return new Date().toISOString().slice(0, 10);
+// YYYY-MM-DD for "now" in the configured timezone.
+function todayInTz(tz) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function addDays(dateStr, days) {
@@ -49,33 +59,38 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchTeam() {
-  const data = await linearRequest(`
-    query {
-      teams(filter: { name: { eqIgnoreCase: "${TEAM_NAME}" } }) {
-        nodes {
-          id name
-          states(first: 50) { nodes { id name } }
+async function fetchTeams() {
+  const teams = [];
+  let after = null;
+  do {
+    const data = await linearRequest(`
+      query Teams($after: String) {
+        teams(first: 50, after: $after) {
+          nodes {
+            id name
+            states(first: 50) { nodes { id name } }
+          }
+          pageInfo { hasNextPage endCursor }
         }
       }
-    }
-  `);
-  const team = data.teams.nodes[0];
-  if (!team) throw new Error(`Linear team "${TEAM_NAME}" not found`);
-  return team;
+    `, { after });
+    teams.push(...data.teams.nodes);
+    after = data.teams.pageInfo.hasNextPage ? data.teams.pageInfo.endCursor : null;
+  } while (after);
+  return teams;
 }
 
-async function fetchEligibleIssues(teamId) {
+async function fetchEligibleIssues(teamIds) {
   const issues = [];
   let after = null;
   do {
     const data = await linearRequest(`
-      query($after: String) {
+      query Eligible($after: String, $teamIds: [ID!]!) {
         issues(
           first: 50
           after: $after
           filter: {
-            team: { id: { eq: "${teamId}" } }
+            team: { id: { in: $teamIds } }
             archivedAt: { null: true }
             completedAt: { null: true }
             canceledAt: { null: true }
@@ -86,11 +101,12 @@ async function fetchEligibleIssues(teamId) {
           nodes {
             id identifier title dueDate
             state { id name }
+            team { id name }
           }
           pageInfo { hasNextPage endCursor }
         }
       }
-    `, { after });
+    `, { after, teamIds });
     issues.push(...data.issues.nodes);
     after = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
   } while (after);
@@ -106,25 +122,37 @@ async function updateIssueState(issueId, stateId) {
 }
 
 async function main() {
-  const todayStr = today();
+  const todayStr = todayInTz(TIMEZONE);
   const withinWeek = addDays(todayStr, 7);
   const withinDay = addDays(todayStr, 1);
 
-  console.log(`Advancing due tasks — today is ${todayStr}`);
+  console.log(`Advancing due tasks — today is ${todayStr} (${TIMEZONE})`);
   console.log(`  Week threshold : due <= ${withinWeek} → Docket`);
   console.log(`  Day threshold  : due <= ${withinDay} → In Progress\n`);
 
-  const team = await fetchTeam();
-  const statesByName = Object.fromEntries(
-    team.states.nodes.map((s) => [s.name.toLowerCase(), s])
-  );
+  const teams = await fetchTeams();
+  const teamStateMap = {};
+  for (const team of teams) {
+    const states = Object.fromEntries(
+      team.states.nodes.map((s) => [s.name.toLowerCase(), s])
+    );
+    const docket = states["docket"];
+    const inProgress = states["in progress"];
+    if (!docket || !inProgress) {
+      console.log(`  ⚠ Skipping team "${team.name}" — missing Docket and/or In Progress`);
+      continue;
+    }
+    teamStateMap[team.id] = { docketId: docket.id, inProgressId: inProgress.id };
+  }
 
-  const docketState = statesByName["docket"];
-  const inProgressState = statesByName["in progress"];
-  if (!docketState) throw new Error('State "Docket" not found in Self team');
-  if (!inProgressState) throw new Error('State "In Progress" not found in Self team');
+  const teamIds = Object.keys(teamStateMap);
+  if (teamIds.length === 0) {
+    console.log("No teams have both Docket and In Progress states. Nothing to do.");
+    return;
+  }
+  console.log(`Processing ${teamIds.length} eligible team(s)\n`);
 
-  const issues = await fetchEligibleIssues(team.id);
+  const issues = await fetchEligibleIssues(teamIds);
   console.log(`Found ${issues.length} eligible issue(s) with a due date\n`);
 
   let toInProgress = 0;
@@ -133,26 +161,26 @@ async function main() {
   let failed = 0;
 
   for (const issue of issues) {
-    const { id, identifier, title, dueDate, state } = issue;
+    const { id, identifier, title, dueDate, state, team } = issue;
     const stateName = state.name.toLowerCase();
+    const mapping = teamStateMap[team.id];
+    if (!mapping) { skipped++; continue; }
 
     try {
       if (dueDate <= withinDay) {
-        // Due tomorrow or sooner (or overdue) — promote to In Progress
         if (stateName === "in progress") { skipped++; continue; }
-        await updateIssueState(id, inProgressState.id);
-        console.log(`  → In Progress  ${identifier}  (due ${dueDate})  "${title}"`);
+        await updateIssueState(id, mapping.inProgressId);
+        console.log(`  → In Progress  [${team.name}] ${identifier}  (due ${dueDate})  "${title}"`);
         toInProgress++;
       } else if (dueDate <= withinWeek && (stateName === "backlog" || stateName === "todo")) {
-        // Due within the week — move to Docket
-        await updateIssueState(id, docketState.id);
-        console.log(`  → Docket       ${identifier}  (due ${dueDate})  "${title}"`);
+        await updateIssueState(id, mapping.docketId);
+        console.log(`  → Docket       [${team.name}] ${identifier}  (due ${dueDate})  "${title}"`);
         toDocket++;
       } else {
         skipped++;
       }
     } catch (err) {
-      console.error(`  ✗ ${identifier}: ${err.message}`);
+      console.error(`  ✗ [${team.name}] ${identifier}: ${err.message}`);
       failed++;
     }
   }

@@ -28,6 +28,10 @@ if (!LINEAR_API_KEY) {
   process.exit(1);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function linearRequest(query, variables = {}) {
   const res = await fetch(LINEAR_API_URL, {
     method: "POST",
@@ -47,6 +51,7 @@ async function linearRequest(query, variables = {}) {
   if (body.errors?.length) {
     throw new Error(`Linear API errors: ${JSON.stringify(body.errors)}`);
   }
+  if (/^\s*mutation/i.test(query)) await sleep(100);
   return body.data;
 }
 
@@ -382,7 +387,7 @@ async function findIterations(teamId, recurringLabel) {
         orderBy: createdAt
       ) {
         nodes {
-          id identifier title
+          id identifier title createdAt
           state { id name type }
           dueDate completedAt canceledAt archivedAt
           labels(first: 20) { nodes { id name } }
@@ -391,7 +396,12 @@ async function findIterations(teamId, recurringLabel) {
     }`,
     { teamId, label: recurringLabel }
   );
-  return data.issues.nodes;
+  // Sort newest first so duplicate-open and rollover logic prefer the most
+  // recent iteration. Linear's `orderBy: createdAt` direction is implicit;
+  // sorting here makes the intent explicit and robust to API changes.
+  return data.issues.nodes
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 // --- Issue mutations -------------------------------------------------------

@@ -11,6 +11,10 @@ if (!LINEAR_API_KEY) {
   process.exit(1);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function linearRequest(query, variables = {}) {
   const res = await fetch(LINEAR_API_URL, {
     method: "POST",
@@ -20,25 +24,27 @@ async function linearRequest(query, variables = {}) {
     },
     body: JSON.stringify({ query, variables }),
   });
-
+  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Linear API HTTP error: ${res.status} ${res.statusText}`);
+    throw new Error(`Linear API HTTP ${res.status} ${res.statusText}: ${text}`);
   }
-
-  const body = await res.json();
+  const body = JSON.parse(text);
   if (body.errors?.length) {
     throw new Error(`Linear API errors: ${JSON.stringify(body.errors)}`);
   }
-
+  if (/^\s*mutation/i.test(query)) await sleep(100);
   return body.data;
 }
 
 const GET_CLOSED_ISSUES_QUERY = `
-  query GetClosedIssues($after: String) {
+  query GetClosedIssues($after: String, $cutoff: DateTime!) {
     issues(
       filter: {
-        state: { type: { in: ["completed", "canceled"] } }
         archivedAt: { null: true }
+        or: [
+          { completedAt: { lt: $cutoff } }
+          { canceledAt: { lt: $cutoff } }
+        ]
       }
       first: 100
       after: $after
@@ -70,12 +76,15 @@ const ARCHIVE_ISSUE_MUTATION = `
   }
 `;
 
-async function fetchAllClosedIssues() {
+async function fetchAllClosedIssues(cutoff) {
   const issues = [];
   let after = null;
 
   do {
-    const data = await linearRequest(GET_CLOSED_ISSUES_QUERY, { after });
+    const data = await linearRequest(GET_CLOSED_ISSUES_QUERY, {
+      after,
+      cutoff: cutoff.toISOString(),
+    });
     issues.push(...data.issues.nodes);
     after = data.issues.pageInfo.hasNextPage
       ? data.issues.pageInfo.endCursor
@@ -90,11 +99,6 @@ async function archiveIssue(id) {
   return data.issueArchive.success;
 }
 
-// Small delay between mutations to stay well within Linear's rate limits
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function main() {
   const cutoff = new Date(Date.now() - ONE_WEEK_MS);
   console.log(
@@ -102,13 +106,7 @@ async function main() {
   );
 
   console.log("Fetching closed issues...");
-  const allClosed = await fetchAllClosedIssues();
-  console.log(`Found ${allClosed.length} unarchived closed issue(s) total`);
-
-  const eligible = allClosed.filter((issue) => {
-    const closedAt = issue.completedAt ?? issue.canceledAt ?? issue.updatedAt;
-    return closedAt && new Date(closedAt) < cutoff;
-  });
+  const eligible = await fetchAllClosedIssues(cutoff);
 
   if (eligible.length === 0) {
     console.log("No issues eligible for archiving.");
@@ -135,9 +133,6 @@ async function main() {
       console.error(`  ✗ [${issue.team.name}] ${issue.identifier} — ${err.message}`);
       failed++;
     }
-
-    // 100ms between mutations; Linear rate limit is 1,500 req/hr
-    await sleep(100);
   }
 
   console.log(`\nDone. Archived: ${archived}  Failed: ${failed}`);
