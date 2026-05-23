@@ -43,6 +43,10 @@
 #     every:    "Nd" | "Nw"
 #     anchor:   YYYY-MM-DD                                   (optional)
 #
+#   mode: yearly_dates
+#     dates:    list of "MM-DD" strings, e.g. ["04-15", "06-15"]
+#               Each listed date recurs every year.
+#
 #   mode: after_completion
 #     interval: "Nd" | "Nw"   — N after the previous completion
 #
@@ -184,3 +188,51 @@ tasks:
       assignee: me
       initial_state: Backlog
       priority: 4
+
+  - id: file-federal-quarterly-taxes
+    schedule:
+      mode: yearly_dates
+      dates: ["04-15", "06-15", "09-15", "01-15"]
+    create_offset: 4w
+    fields:
+      name: "File federal quarterly taxes ({{month}} {{day}})"
+      assignee: me
+      project: "Cash care"
+      initial_state: Backlog
+      priority: 2
+
+  - id: file-ca-quarterly-taxes
+    schedule:
+      mode: yearly_dates
+      dates: ["04-15", "06-15", "01-15"] # CA skips Q3 (Sep 15 = 0% installment)
+    create_offset: 4w
+    fields:
+      name: "File CA quarterly taxes ({{month}} {{day}})"
+      assignee: me
+      project: "Cash care"
+      initial_state: Backlog
+      priority: 2
+
+  - id: file-federal-annual-taxes
+    schedule:
+      mode: yearly_dates
+      dates: ["04-15"]
+    create_offset: 4w
+    fields:
+      name: "File federal annual taxes ({{year}})"
+      assignee: me
+      project: "Cash care"
+      initial_state: Backlog
+      priority: 2
+
+  - id: file-ca-annual-taxes
+    schedule:
+      mode: yearly_dates
+      dates: ["04-15"]
+    create_offset: 4w
+    fields:
+      name: "File CA annual taxes ({{year}})"
+      assignee: me
+      project: "Cash care"
+      initial_state: Backlog
+      priority: 2

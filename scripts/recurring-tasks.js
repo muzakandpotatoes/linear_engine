@@ -109,6 +109,29 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+// "MM-DD" → Date at UTC midnight for the given year. Validates ranges.
+function parseYearMmDd(year, mmdd) {
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(String(mmdd).trim());
+  if (!m) throw new Error(`Invalid date "${mmdd}" (expected MM-DD)`);
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (month < 1 || month > 12) throw new Error(`Invalid month in "${mmdd}"`);
+  if (day < 1 || day > 31) throw new Error(`Invalid day in "${mmdd}"`);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+// Expand a list of "MM-DD" strings into Date objects across the given years.
+function expandYearlyDates(dates, years) {
+  if (!Array.isArray(dates) || dates.length === 0) {
+    throw new Error("yearly_dates requires a non-empty `dates` list");
+  }
+  const out = [];
+  for (const year of years) {
+    for (const mmdd of dates) out.push(parseYearMmDd(year, mmdd));
+  }
+  return out;
+}
+
 function isoWeekNum(date) {
   const d = new Date(Date.UTC(
     date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()
@@ -180,6 +203,12 @@ function computeCurrentDueDate(schedule, today) {
       );
       return formatDate(next);
     }
+    case "yearly_dates": {
+      const y = t.getUTCFullYear();
+      const candidates = expandYearlyDates(schedule.dates, [y, y + 1]);
+      const future = candidates.filter((d) => d >= t).sort((a, b) => a - b);
+      return formatDate(future[0]);
+    }
     case "after_completion":
       return null;
     default:
@@ -207,6 +236,12 @@ function nextDueDate(schedule, fromDate) {
     case "interval": {
       const every = parseOffsetDays(schedule.every);
       return formatDate(addDays(t, every));
+    }
+    case "yearly_dates": {
+      const y = t.getUTCFullYear();
+      const candidates = expandYearlyDates(schedule.dates, [y, y + 1]);
+      const future = candidates.filter((d) => d > t).sort((a, b) => a - b);
+      return formatDate(future[0]);
     }
     default:
       return fromDate;
@@ -239,6 +274,12 @@ function previousDueDate(schedule, dueDate) {
     case "interval": {
       const every = parseOffsetDays(schedule.every);
       return formatDate(addDays(t, -every));
+    }
+    case "yearly_dates": {
+      const y = t.getUTCFullYear();
+      const candidates = expandYearlyDates(schedule.dates, [y - 1, y]);
+      const past = candidates.filter((d) => d < t).sort((a, b) => b - a);
+      return formatDate(past[0]);
     }
     default:
       return dueDate;
