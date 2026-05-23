@@ -164,3 +164,23 @@ tasks:
       assignee: me
       initial_state: Backlog
       priority: 4
+
+  - id: shave-cat-butts
+    schedule:
+      mode: after_completion
+      interval: 6w
+    fields:
+      name: "Shave cat butts"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
+
+  - id: trim-cat-nails
+    schedule:
+      mode: after_completion
+      interval: 2w
+    fields:
+      name: "Trim cat nails"
+      assignee: me
+      initial_state: Backlog
+      priority: 4
