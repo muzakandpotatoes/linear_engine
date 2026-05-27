@@ -114,21 +114,6 @@ tasks:
       initial_state: Backlog
       priority: 2
 
-  - id: project-review-sync-doc
-    schedule:
-      mode: weekly
-      day: Thursday
-    transitions:
-      - offset: 0d
-        state: In Progress
-    fields:
-      name: "Fill project review sync doc"
-      assignee: me
-      team: Hop
-      project: "Hop Meta"
-      initial_state: Todo
-      priority: 3
-
   - id: clean-coway-prefilters
     schedule:
       mode: after_completion
