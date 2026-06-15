@@ -37,7 +37,7 @@ async function linearRequest(query, variables = {}) {
 }
 
 const GET_CLOSED_ISSUES_QUERY = `
-  query GetClosedIssues($after: String, $cutoff: DateTime!) {
+  query GetClosedIssues($after: String, $cutoff: DateTimeOrDuration!) {
     issues(
       filter: {
         archivedAt: { null: true }
