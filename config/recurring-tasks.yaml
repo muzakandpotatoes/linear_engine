@@ -180,6 +180,17 @@ tasks:
       initial_state: Backlog
       priority: 4
 
+  - id: brush-cat-hair
+    schedule:
+      mode: after_completion
+      interval: 1w
+    fields:
+      name: "Brush cat hair"
+      assignee: me
+      project: "Cat care"
+      initial_state: Backlog
+      priority: 4
+
   - id: file-federal-quarterly-taxes
     schedule:
       mode: yearly_dates
