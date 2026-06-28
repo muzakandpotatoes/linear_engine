@@ -191,6 +191,17 @@ tasks:
       initial_state: Backlog
       priority: 4
 
+  - id: plan-model-outings
+    schedule:
+      mode: after_completion
+      interval: 1w
+    fields:
+      name: "Plan models outings"
+      assignee: me
+      project: "Friend care"
+      initial_state: Backlog
+      priority: 4
+
   - id: file-federal-quarterly-taxes
     schedule:
       mode: yearly_dates
